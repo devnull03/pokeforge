@@ -1,12 +1,14 @@
-import "dotenv/config";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { serve } from "@hono/node-server";
 import { Stagehand } from "@browserbasehq/stagehand";
-import * as fs from "node:fs";
-import * as path from "node:path";
 
-const app = new Hono();
+type Bindings = {
+	BROWSERBASE_PROJECT_ID: string;
+	BROWSERBASE_API_KEY: string;
+	ANTHROPIC_API_KEY: string;
+};
+
+const app = new Hono<{ Bindings: Bindings }>();
 app.use(cors());
 
 interface RunPayload {
@@ -28,8 +30,6 @@ interface RunResult {
 	error?: string;
 }
 
-const CACHE_DIR = "cache";
-
 app.post("/run", async (c) => {
 	const body = (await c.req.json()) as RunPayload;
 	const { websiteUrl, task } = body;
@@ -42,12 +42,23 @@ app.post("/run", async (c) => {
 	const logLines: string[] = [];
 
 	try {
+		if (!c.env.BROWSERBASE_PROJECT_ID || !c.env.BROWSERBASE_API_KEY || !c.env.ANTHROPIC_API_KEY) {
+			return c.json(
+				{
+					actions: actionLogs,
+					logs: "Missing required Browserbase or Anthropic bindings",
+					cacheKey: "",
+					error: "BROWSERBASE_PROJECT_ID, BROWSERBASE_API_KEY and ANTHROPIC_API_KEY are required",
+				} satisfies RunResult,
+				500,
+			);
+		}
+
 		const stagehand = new Stagehand({
 			env: "BROWSERBASE",
-			cacheDir: CACHE_DIR,
 			model: {
 				modelName: "anthropic/claude-haiku-4-5-20251001",
-				apiKey: process.env.ANTHROPIC_API_KEY,
+				apiKey: c.env.ANTHROPIC_API_KEY,
 			},
 		});
 
@@ -87,23 +98,7 @@ app.post("/run", async (c) => {
 
 		await stagehand.close();
 
-		// Read cache files if they exist (Stagehand writes to cacheDir)
 		const cacheKey = `${websiteUrl.replace(/[^a-z0-9]/gi, "_").slice(0, 64)}_${task.replace(/[^a-z0-9]/gi, "_").slice(0, 32)}`;
-		let cacheContent = "";
-		const cachePath = path.join(process.cwd(), CACHE_DIR);
-		if (fs.existsSync(cachePath)) {
-			try {
-				const files = fs.readdirSync(cachePath);
-				for (const file of files) {
-					const fullPath = path.join(cachePath, file);
-					if (fs.statSync(fullPath).isFile()) {
-						cacheContent += `\n--- ${file} ---\n${fs.readFileSync(fullPath, "utf-8")}`;
-					}
-				}
-			} catch {
-				// ignore cache read errors
-			}
-		}
 
 		const result: RunResult = {
 			actions: actionLogs,
@@ -111,10 +106,6 @@ app.post("/run", async (c) => {
 			cacheKey,
 			sessionId: stagehand.browserbaseSessionId,
 		};
-
-		if (cacheContent) {
-			result.logs += `\n\n--- Cache files ---\n${cacheContent}`;
-		}
 
 		return c.json(result);
 	} catch (err) {
@@ -137,6 +128,4 @@ app.post("/run", async (c) => {
 
 app.get("/health", (c) => c.json({ ok: true }));
 
-const port = Number(process.env.PORT) || 8788;
-console.log(`Stagehand service listening on http://localhost:${port}`);
-serve({ fetch: app.fetch, port });
+export default app;

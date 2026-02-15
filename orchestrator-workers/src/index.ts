@@ -5,8 +5,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Variables } from "./types/hono";
 
-export { OrchestratorWorkersWorkflow } from "./orchestrator-workers-workflow";
-export { WebsiteAutomationWorkflow } from "./website-automation-workflow";
+export { PokeforgeWorkflow } from "./pokeforge-workflow";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use(cors());
@@ -16,12 +15,15 @@ const mcpServer = new McpServer({
 	version: "1.0.0",
 });
 
-mcpServer.tool(
+ mcpServer.registerTool(
 	"automate_website",
 	{
-		website_url: z.string().url().describe("URL of the website to automate"),
-		task: z.string().describe("Task to perform on the website"),
-		orchestrator_url: z.string().url().optional().default("http://localhost:8787"),
+		description: "Run the Pokeforge automation workflow for a target website task.",
+		inputSchema: {
+			website_url: z.url().describe("URL of the website to automate"),
+			task: z.string().describe("Task to perform on the website"),
+			orchestrator_url: z.url().optional().default("http://localhost:8787"),
+		},
 	},
 	async ({ website_url, task, orchestrator_url }) => {
 		const base = orchestrator_url ?? "http://localhost:8787";
@@ -66,19 +68,7 @@ mcpServer.tool(
 const mcpHandler = createMcpHandler(mcpServer);
 
 /**
- * POST / - Trigger orchestrator-workers workflow (prompt subtasks)
- */
-app.post("/", async (c) => {
-	const { prompt } = (await c.req.json()) as { prompt: string };
-	const instance = await c.env.ORCHESTRATOR_WORKERS_WORKFLOW.create({
-		params: { prompt },
-	});
-	const status = await instance.status();
-	return c.json({ id: instance.id, details: status });
-});
-
-/**
- * POST /automate - Trigger website automation workflow (Stagehand + MCP codegen + GitHub)
+ * POST /automate - Trigger Pokeforge workflow (Stagehand + MCP codegen + GitHub)
  * Body: { websiteUrl: string, task: string }
  */
 app.post("/automate", async (c) => {
@@ -87,7 +77,7 @@ app.post("/automate", async (c) => {
 	if (!websiteUrl || !task) {
 		return c.json({ error: "websiteUrl and task are required" }, 400);
 	}
-	const instance = await c.env.WEBSITE_AUTOMATION_WORKFLOW.create({
+	const instance = await c.env.POKEFORGE_WORKFLOW.create({
 		params: { websiteUrl, task },
 	});
 	const status = await instance.status();
@@ -95,30 +85,17 @@ app.post("/automate", async (c) => {
 });
 
 /**
- * GET /automate/:id - Fetch status and result of website automation workflow
+ * GET /automate/:id - Fetch status and result of Pokeforge workflow
  */
 app.get("/automate/:id", async (c) => {
 	const instanceId = c.req.param("id");
 	if (!instanceId) {
 		return c.json({ error: "Instance ID not provided" }, 400);
 	}
-	const instance = await c.env.WEBSITE_AUTOMATION_WORKFLOW.get(instanceId);
+	const instance = await c.env.POKEFORGE_WORKFLOW.get(instanceId);
 	const status = await instance.status();
 	const output = "output" in instance && typeof (instance as { output?: () => Promise<unknown> }).output === "function" ? await (instance as { output: () => Promise<unknown> }).output() : undefined;
 	return c.json({ status, output });
-});
-
-/**
- * GET /:id - Fetch status of orchestrator-workers workflow instance
- */
-app.get("/:id", async (c) => {
-	const instanceId = c.req.param("id");
-	if (instanceId) {
-		const instance = await c.env.ORCHESTRATOR_WORKERS_WORKFLOW.get(instanceId);
-		const status = await instance.status();
-		return c.json({ status });
-	}
-	return c.json({ error: "Instance ID not provided" }, 400);
 });
 
 export default {

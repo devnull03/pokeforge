@@ -1,11 +1,18 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { generateText, Output } from "ai";
-import { createWorkersAI } from "workers-ai-provider";
+import { getSandbox } from "@cloudflare/sandbox";
 import z from "zod";
 
-export type WebsiteAutomationWorkflowParams = {
+export { Sandbox } from "@cloudflare/sandbox";
+
+export type PokeforgeWorkflowParams = {
 	websiteUrl: string;
 	task: string;
+};
+
+type DiscoveryAction = {
+	instruction: string;
+	type: string;
+	result: string;
 };
 
 const codegenSchema = z.object({
@@ -14,19 +21,20 @@ const codegenSchema = z.object({
 	packageJson: z.string().describe("Full package.json"),
 });
 
-export class WebsiteAutomationWorkflow extends WorkflowEntrypoint<
+export class PokeforgeWorkflow extends WorkflowEntrypoint<
 	Env,
-	WebsiteAutomationWorkflowParams
+	PokeforgeWorkflowParams
 > {
-	async run(event: WorkflowEvent<WebsiteAutomationWorkflowParams>, step: WorkflowStep) {
+	async run(event: WorkflowEvent<PokeforgeWorkflowParams>, step: WorkflowStep) {
 		const { websiteUrl, task } = event.payload;
 		const stagehandUrl = this.env.STAGEHAND_SERVICE_URL ?? "http://localhost:8788";
 		const githubToken = this.env.GITHUB_TOKEN;
 		const githubOwner = this.env.GITHUB_OWNER ?? "devnull03";
+		const openaiApiKey = this.env.OPENAI_API_KEY;
 		const repoName = `mcp-automation-${websiteUrl.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").slice(0, 40)}-${Date.now().toString(36)}`;
-
-		const workersai = createWorkersAI({ binding: this.env.AI });
-		const bigModel = workersai("@cf/meta/llama-3.3-70b-instruct-fp8-fast");
+		if (!openaiApiKey) {
+			throw new Error("OPENAI_API_KEY is required for MCP code generation");
+		}
 
 		// Step 1: Call Stagehand service (sync - wait for completion)
 		const discovery = await step.do("run stagehand", async () => {
@@ -40,16 +48,33 @@ export class WebsiteAutomationWorkflow extends WorkflowEntrypoint<
 				throw new Error(`Stagehand service error: ${res.status} ${err}`);
 			}
 			const raw = await res.json();
-			return JSON.parse(JSON.stringify(raw)) as {
-				actions: Array<{ instruction: string; type: string; result: unknown }>;
-				logs: string;
-				cacheKey: string;
-				error?: string;
+			const normalizedRaw = JSON.parse(JSON.stringify(raw)) as {
+				actions?: Array<{ instruction?: unknown; type?: unknown; result?: unknown }>;
+				logs?: unknown;
+				cacheKey?: unknown;
+				error?: unknown;
+			};
+			const actions: DiscoveryAction[] = Array.isArray(normalizedRaw.actions)
+				? normalizedRaw.actions.map((action) => ({
+						instruction:
+							typeof action.instruction === "string"
+								? action.instruction
+								: String(action.instruction ?? ""),
+						type: typeof action.type === "string" ? action.type : String(action.type ?? ""),
+						result: JSON.stringify(action.result ?? null),
+					}))
+				: [];
+
+			return {
+				actions,
+				logs: typeof normalizedRaw.logs === "string" ? normalizedRaw.logs : "",
+				cacheKey: typeof normalizedRaw.cacheKey === "string" ? normalizedRaw.cacheKey : "",
+				error: typeof normalizedRaw.error === "string" ? normalizedRaw.error : undefined,
 			};
 		});
 
 		const discoveryData = discovery as {
-			actions: Array<{ instruction: string; type: string; result: unknown }>;
+			actions: DiscoveryAction[];
 			logs: string;
 			cacheKey: string;
 			error?: string;
@@ -82,16 +107,56 @@ Return a JSON object with exactly three string fields:
 - indexTs: Full source for src/index.ts (MCP server entry)
 - wranglerJsonc: Full wrangler.jsonc (compatibility_date 2025-03-10, nodejs_compat, observability enabled)
 - packageJson: Full package.json (name: "${repoName}", dependencies: @modelcontextprotocol/sdk, agents, zod)`;
-
-			const { output: object } = await generateText({
-				model: bigModel,
-				prompt: codegenPrompt,
-				output: Output.object({ schema: codegenSchema }),
-			});
-			return object;
+			return generateMcpServerWithOpenAI(codegenPrompt, openaiApiKey);
 		});
 
-		// Step 3: Push to GitHub
+		// Step 3: Validate generated code in a sandbox before pushing to GitHub
+		await step.do("test generated code", async () => {
+			const sandboxId = `mcp-test-${repoName}`;
+			const sandbox = getSandbox(this.env.Sandbox, sandboxId);
+
+			try {
+				await sandbox.exec("mkdir -p /workspace/src");
+				await sandbox.writeFile("/workspace/package.json", generated.packageJson);
+				await sandbox.writeFile("/workspace/src/index.ts", generated.indexTs);
+				await sandbox.writeFile(
+					"/workspace/tsconfig.json",
+					JSON.stringify(
+						{
+							compilerOptions: {
+								target: "ES2022",
+								module: "NodeNext",
+								moduleResolution: "NodeNext",
+								strict: true,
+								skipLibCheck: true,
+								noEmit: true,
+							},
+							include: ["src/**/*.ts"],
+						},
+						null,
+						2,
+					),
+				);
+
+				const installResult = await sandbox.exec("cd /workspace && bun install");
+				if (!installResult.success) {
+					throw new Error(
+						`Sandbox bun install failed (exit ${installResult.exitCode}): ${installResult.stderr || installResult.stdout}`,
+					);
+				}
+
+				const typecheckResult = await sandbox.exec("cd /workspace && bunx tsc --noEmit");
+				if (!typecheckResult.success) {
+					throw new Error(
+						`Generated code failed validation (exit ${typecheckResult.exitCode}): ${typecheckResult.stderr || typecheckResult.stdout}`,
+					);
+				}
+			} finally {
+				await sandbox.destroy();
+			}
+		});
+
+		// Step 4: Push to GitHub
 		const githubUrl = await step.do("push to github", async () => {
 			if (!githubToken) {
 				return `https://github.com/${githubOwner}/${repoName} (repo not created - GITHUB_TOKEN not set)`;
@@ -166,4 +231,48 @@ function base64EncodeUtf8(str: string): string {
 		binary += String.fromCharCode(bytes[i]);
 	}
 	return btoa(binary);
+}
+
+async function generateMcpServerWithOpenAI(prompt: string, apiKey: string) {
+	const response = await fetch("https://api.openai.com/v1/chat/completions", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${apiKey}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			model: "gpt-4o-mini",
+			temperature: 0.2,
+			messages: [
+				{
+					role: "system",
+					content:
+						"Return only valid JSON with keys indexTs, wranglerJsonc, packageJson. Do not wrap in markdown.",
+				},
+				{ role: "user", content: prompt },
+			],
+		}),
+	});
+
+	if (!response.ok) {
+		const errorText = await response.text();
+		throw new Error(`OpenAI codegen failed: ${response.status} ${errorText}`);
+	}
+
+	const payload = (await response.json()) as {
+		choices?: Array<{ message?: { content?: string | null } }>;
+	};
+	const content = payload.choices?.[0]?.message?.content?.trim();
+	if (!content) {
+		throw new Error("OpenAI codegen failed: empty response content");
+	}
+
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(content);
+	} catch {
+		throw new Error("OpenAI codegen failed: response was not valid JSON");
+	}
+
+	return codegenSchema.parse(parsed);
 }

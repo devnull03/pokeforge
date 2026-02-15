@@ -18,9 +18,7 @@
 	"dependencies": {
 		"@modelcontextprotocol/sdk": "^1.20.0",
 		"agents": "^0.4.1",
-		"ai": "^6.0.82",
 		"hono": "^4.11.9",
-		"workers-ai-provider": "^3.1.1",
 		"zod": "^4.3.6"
 	},
 	"devDependencies": {

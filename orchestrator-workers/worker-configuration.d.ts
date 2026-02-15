@@ -6,11 +6,9 @@ declare namespace Cloudflare {
 		mainModule: typeof import("./src/index");
 	}
 	interface Env {
-		AI: Ai;
 		STAGEHAND_SERVICE_URL: "http://localhost:8788";
 		GITHUB_OWNER: "devnull03";
-		ORCHESTRATOR_WORKERS_WORKFLOW: Workflow<Parameters<import("./src/index").OrchestratorWorkersWorkflow['run']>[0]['payload']>;
-		WEBSITE_AUTOMATION_WORKFLOW: Workflow<Parameters<import("./src/index").WebsiteAutomationWorkflow['run']>[0]['payload']>;
+		POKEFORGE_WORKFLOW: Workflow<Parameters<import("./src/index").PokeforgeWorkflow['run']>[0]['payload']>;
 	}
 }
 interface Env extends Cloudflare.Env {}

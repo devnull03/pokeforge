@@ -5,13 +5,14 @@
 	"compatibility_date": "2025-01-29",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
-	"ai": { "binding": "AI" },
 	"vars": {
 		"STAGEHAND_SERVICE_URL": "http://localhost:8788",
 		"GITHUB_OWNER": "devnull03"
 	},
+	"durable_objects": {
+		"bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }]
+	},
 	"workflows": [
-		{ "name": "orchestrator-workers-workflow", "binding": "ORCHESTRATOR_WORKERS_WORKFLOW", "class_name": "OrchestratorWorkersWorkflow" },
-		{ "name": "website-automation-workflow", "binding": "WEBSITE_AUTOMATION_WORKFLOW", "class_name": "WebsiteAutomationWorkflow" }
+		{ "name": "pokeforge-workflow", "binding": "POKEFORGE_WORKFLOW", "class_name": "PokeforgeWorkflow" }
 	]
 }
