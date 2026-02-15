@@ -176,3 +176,10 @@ dist
 
 .dev.vars
 .wrangler/
+
+# Discovery agent
+discovery/data/
+discovery/cache/
+discovery/dist/
+discovery/.env
+discovery/node_modules/
