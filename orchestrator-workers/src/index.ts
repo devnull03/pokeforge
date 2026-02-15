@@ -4,6 +4,7 @@ import { createMcpHandler } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Variables } from "./types/hono";
+import { runStagehandDiscovery } from "./utils/pokeforge/stagehand";
 
 export { PokeforgeWorkflow } from "./pokeforge-workflow";
 
@@ -96,6 +97,51 @@ app.get("/automate/:id", async (c) => {
 	const status = await instance.status();
 	const output = "output" in instance && typeof (instance as { output?: () => Promise<unknown> }).output === "function" ? await (instance as { output: () => Promise<unknown> }).output() : undefined;
 	return c.json({ status, output });
+});
+
+/**
+ * POST /debug/stagehand-smoke - Verify orchestrator -> stagehand transport on Cloudflare.
+ * Body (optional): { websiteUrl?: string, task?: string }
+ */
+app.post("/debug/stagehand-smoke", async (c) => {
+	const body = (await c.req.json().catch(() => ({}))) as {
+		websiteUrl?: string;
+		task?: string;
+	};
+	const websiteUrl = body.websiteUrl ?? "https://example.com";
+	const task = body.task ?? "Observe the page and describe the main content.";
+
+	try {
+		const discovery = await runStagehandDiscovery({
+			stagehandService: c.env.STAGEHAND_SERVICE,
+			stagehandUrl: c.env.STAGEHAND_SERVICE_URL,
+			websiteUrl,
+			task,
+			context: { smokeTest: true },
+		});
+
+		return c.json({
+			ok: !discovery.error,
+			transport: c.env.STAGEHAND_SERVICE ? "service-binding" : "url-fallback",
+			cacheKey: discovery.cacheKey,
+			sessionId: discovery.sessionId,
+			receivedArtifactCount: discovery.receivedArtifactCount ?? 0,
+			actionCount: discovery.actions.length,
+			artifactCount: discovery.artifacts.length,
+			error: discovery.error,
+			logPreview: discovery.logs.slice(0, 400),
+		});
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		return c.json(
+			{
+				ok: false,
+				transport: c.env.STAGEHAND_SERVICE ? "service-binding" : "url-fallback",
+				error: message,
+			},
+			500,
+		);
+	}
 });
 
 export default {
