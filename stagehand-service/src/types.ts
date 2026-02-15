@@ -1,7 +1,8 @@
 export type Bindings = {
 	BROWSERBASE_PROJECT_ID: string;
 	BROWSERBASE_API_KEY: string;
-	ANTHROPIC_API_KEY: string;
+	AI_PROVIDER: "openai" | "anthropic" | "google";
+	AI_API_KEY: string;
 };
 
 export type ExecuteStep = {

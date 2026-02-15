@@ -2,16 +2,17 @@ import type { GeneratedMcpServer } from "./types";
 
 export async function createGithubRepoWithGeneratedCode(args: {
 	githubToken?: string;
-	githubOwner: string;
+	githubOwner?: string;
 	repoName: string;
 	task: string;
 	websiteUrl: string;
 	generated: GeneratedMcpServer;
 }): Promise<string> {
 	const { githubToken, githubOwner, repoName, task, websiteUrl, generated } = args;
+	const ownerDisplay = githubOwner ?? "unknown-owner";
 
 	if (!githubToken) {
-		return `https://github.com/${githubOwner}/${repoName} (repo not created - GITHUB_TOKEN not set)`;
+		return `https://github.com/${ownerDisplay}/${repoName} (repo not created - GITHUB_TOKEN not set)`;
 	}
 
 	const headers = {
@@ -20,6 +21,7 @@ export async function createGithubRepoWithGeneratedCode(args: {
 		"X-GitHub-Api-Version": "2022-11-28",
 		"Content-Type": "application/json",
 	};
+	const resolvedOwner = githubOwner ?? (await resolveGithubOwner(headers));
 
 	const createRes = await fetch("https://api.github.com/user/repos", {
 		method: "POST",
@@ -48,7 +50,7 @@ export async function createGithubRepoWithGeneratedCode(args: {
 
 	for (const { path: filePath, content } of files) {
 		const putRes = await fetch(
-			`https://api.github.com/repos/${githubOwner}/${repoName}/contents/${filePath}`,
+			`https://api.github.com/repos/${resolvedOwner}/${repoName}/contents/${filePath}`,
 			{
 				method: "PUT",
 				headers,
@@ -64,7 +66,20 @@ export async function createGithubRepoWithGeneratedCode(args: {
 		}
 	}
 
-	return `https://github.com/${githubOwner}/${repoName}`;
+	return `https://github.com/${resolvedOwner}/${repoName}`;
+}
+
+async function resolveGithubOwner(headers: Record<string, string>): Promise<string> {
+	const res = await fetch("https://api.github.com/user", { headers });
+	if (!res.ok) {
+		const err = await res.text();
+		throw new Error(`GitHub owner lookup failed: ${res.status} ${err}`);
+	}
+	const payload = (await res.json()) as { login?: unknown };
+	if (typeof payload.login !== "string" || !payload.login) {
+		throw new Error("GitHub owner lookup failed: missing login");
+	}
+	return payload.login;
 }
 
 function base64EncodeUtf8(str: string): string {

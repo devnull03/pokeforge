@@ -12,13 +12,13 @@ export async function handleExecute(c: AppContext) {
 	if (!hasRequiredBindings(c.env)) {
 		const result: ExecuteResult = {
 			steps: [],
-			logs: "Missing required Browserbase or Anthropic bindings",
+			logs: "Missing required Browserbase or AI bindings",
 			metadata: {
 				cacheKey: "",
 				targetUrl: payload.targetUrl,
 			},
 			artifacts: [],
-			error: "BROWSERBASE_PROJECT_ID, BROWSERBASE_API_KEY and ANTHROPIC_API_KEY are required",
+			error: "BROWSERBASE_PROJECT_ID, BROWSERBASE_API_KEY, AI_PROVIDER and AI_API_KEY are required",
 		};
 		return c.json(result, 500);
 	}
@@ -29,5 +29,9 @@ export async function handleExecute(c: AppContext) {
 }
 
 function hasRequiredBindings(env: Partial<Bindings>): env is Bindings {
-	return Boolean(env.BROWSERBASE_PROJECT_ID && env.BROWSERBASE_API_KEY && env.ANTHROPIC_API_KEY);
+	const hasValidProvider =
+		env.AI_PROVIDER === "openai" ||
+		env.AI_PROVIDER === "anthropic" ||
+		env.AI_PROVIDER === "google";
+	return Boolean(env.BROWSERBASE_PROJECT_ID && env.BROWSERBASE_API_KEY && hasValidProvider && env.AI_API_KEY);
 }

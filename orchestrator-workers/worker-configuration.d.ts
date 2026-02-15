@@ -7,7 +7,7 @@ declare namespace Cloudflare {
 	}
 	interface Env {
 		STAGEHAND_SERVICE_URL: "http://localhost:8788";
-		GITHUB_OWNER: "devnull03";
+		GITHUB_OWNER: "your-github-username";
 		POKEFORGE_WORKFLOW: Workflow<Parameters<import("./src/index").PokeforgeWorkflow['run']>[0]['payload']>;
 	}
 }

@@ -20,11 +20,12 @@ export class PokeforgeWorkflow extends WorkflowEntrypoint<
 		const stagehandService = this.env.STAGEHAND_SERVICE;
 		const stagehandUrl = this.env.STAGEHAND_SERVICE_URL;
 		const githubToken = this.env.GITHUB_TOKEN;
-		const githubOwner = this.env.GITHUB_OWNER ?? "devnull03";
-		const openaiApiKey = this.env.OPENAI_API_KEY;
+		const githubOwner = this.env.GITHUB_OWNER;
+		const aiProvider = (this.env.AI_PROVIDER ?? "openai") as "openai" | "anthropic" | "google";
+		const aiApiKey = this.env.AI_API_KEY;
 		const repoName = `mcp-automation-${websiteUrl.replace(/[^a-z0-9]/gi, "-").replace(/-+/g, "-").slice(0, 40)}-${Date.now().toString(36)}`;
-		if (!openaiApiKey) {
-			throw new Error("OPENAI_API_KEY is required for MCP code generation");
+		if (!aiApiKey) {
+			throw new Error("AI_API_KEY is required for MCP code generation");
 		}
 
 		// Step 1: call stagehand service
@@ -53,7 +54,8 @@ export class PokeforgeWorkflow extends WorkflowEntrypoint<
 				task,
 				repoName,
 				discovery,
-				openaiApiKey,
+				aiProvider,
+				aiApiKey,
 			});
 		});
 

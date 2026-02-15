@@ -5,9 +5,6 @@
 	"compatibility_date": "2025-01-29",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
-	"vars": {
-		"GITHUB_OWNER": "devnull03"
-	},
 	"services": [{ "binding": "STAGEHAND_SERVICE", "service": "stagehand-service" }],
 	"durable_objects": {
 		"bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }]
