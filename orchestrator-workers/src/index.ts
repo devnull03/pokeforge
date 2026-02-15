@@ -7,6 +7,7 @@ import type { Variables } from "./types/hono";
 import { runStagehandDiscovery } from "./utils/pokeforge/stagehand";
 
 export { PokeforgeWorkflow } from "./pokeforge-workflow";
+export { Sandbox } from "@cloudflare/sandbox";
 
 const app = new Hono<{ Bindings: Env; Variables: Variables }>();
 app.use(cors());

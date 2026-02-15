@@ -1,11 +1,8 @@
 import { Stagehand } from "@browserbasehq/stagehand";
-import { readdir, readFile } from "node:fs/promises";
-import { extname, join } from "node:path";
 import type { Bindings, ExecutePayload, ExecuteResult, StepResult, Artifact } from "../types.js";
 import { bytesToBase64, toUint8Array } from "../utils/encoding.js";
 
 export async function executeStagehand(payload: ExecutePayload, env: Bindings): Promise<ExecuteResult> {
-	const cacheDir = "cache";
 	const aiProvider = env.AI_PROVIDER.toLowerCase() as Bindings["AI_PROVIDER"];
 	const modelName =
 		aiProvider === "anthropic"
@@ -25,11 +22,13 @@ export async function executeStagehand(payload: ExecutePayload, env: Bindings): 
 	try {
 		stagehand = new Stagehand({
 			env: "BROWSERBASE",
+			projectId: env.BROWSERBASE_PROJECT_ID,
+			apiKey: env.BROWSERBASE_API_KEY,
 			model: {
 				modelName,
 				apiKey: env.AI_API_KEY,
 			},
-			cacheDir,
+			disablePino: true,
 		});
 		await stagehand.init();
 		logLines.push(`Session started: ${stagehand.browserbaseSessionId ?? "local"}`);
@@ -88,10 +87,6 @@ export async function executeStagehand(payload: ExecutePayload, env: Bindings): 
 			});
 		}
 
-		const cacheArtifacts = await readCacheArtifacts(cacheDir);
-		artifacts.push(...cacheArtifacts);
-		logLines.push(`Collected ${cacheArtifacts.length} cache artifact(s) from ${cacheDir}`);
-
 		return {
 			steps: stepResults,
 			logs: logLines.join("\n"),
@@ -134,45 +129,3 @@ export async function executeStagehand(payload: ExecutePayload, env: Bindings): 
 	}
 }
 
-async function readCacheArtifacts(cacheDir: string): Promise<Artifact[]> {
-	try {
-		const files = await readdir(cacheDir, { withFileTypes: true });
-		const artifacts: Artifact[] = [];
-		for (const entry of files) {
-			if (!entry.isFile()) continue;
-			const filePath = join(cacheDir, entry.name);
-			const fileBytes = await readFile(filePath);
-			artifacts.push({
-				name: `cache/${entry.name}`,
-				mimeType: guessMimeType(entry.name),
-				encoding: "base64",
-				content: bytesToBase64(new Uint8Array(fileBytes)),
-			});
-		}
-		return artifacts;
-	} catch {
-		return [];
-	}
-}
-
-function guessMimeType(filename: string): string {
-	const extension = extname(filename).toLowerCase();
-	switch (extension) {
-		case ".json":
-			return "application/json";
-		case ".html":
-			return "text/html";
-		case ".txt":
-		case ".log":
-			return "text/plain";
-		case ".png":
-			return "image/png";
-		case ".jpg":
-		case ".jpeg":
-			return "image/jpeg";
-		case ".webp":
-			return "image/webp";
-		default:
-			return "application/octet-stream";
-	}
-}

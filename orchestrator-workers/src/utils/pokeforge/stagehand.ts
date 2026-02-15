@@ -9,6 +9,9 @@ export async function runStagehandDiscovery(args: {
 	inputArtifacts?: StagehandArtifact[];
 }): Promise<DiscoveryResult> {
 	const { stagehandService, stagehandUrl, websiteUrl, task, context, inputArtifacts } = args;
+	if (!stagehandService && !stagehandUrl) {
+		throw new Error("Either STAGEHAND_SERVICE binding or STAGEHAND_SERVICE_URL is required");
+	}
 
 	const request = new Request(`${stagehandUrl ?? "https://stagehand-service.internal"}/execute`, {
 		method: "POST",

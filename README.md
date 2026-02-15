@@ -80,6 +80,7 @@ Set these in Cloudflare for `orchestrator-workers`:
 - `AI_API_KEY` (secret)
 - `GITHUB_TOKEN` (secret; required for repo creation)
 - `GITHUB_OWNER` (optional; auto-resolved from token if omitted)
+- `STAGEHAND_SERVICE_URL` (optional var; only for non-binding fallback)
 
 ### B.1) Copy/Paste Setup Commands
 
@@ -98,7 +99,7 @@ bunx wrangler secret put AI_API_KEY
 bunx wrangler secret put GITHUB_TOKEN
 ```
 
-Non-secret vars (`AI_PROVIDER`, optional `GITHUB_OWNER`) should be set in each project's `wrangler.jsonc` `vars` section (or in the Cloudflare dashboard for the Worker).
+Non-secret vars (`AI_PROVIDER`, optional `GITHUB_OWNER`, optional `STAGEHAND_SERVICE_URL`) should be set in each project's `wrangler.jsonc` `vars` section (or in the Cloudflare dashboard for the Worker).
 
 ### C) Service Binding Requirement
 
@@ -125,12 +126,14 @@ curl -X POST "https://<orchestrator-domain>/debug/stagehand-smoke" \
 
 Expect:
 - `ok: true`
-- `transport: "service-binding"`
+- `transport: "service-binding"` (or `url-fallback` when using fallback URL mode)
 
 ## Common Deployment Issues
 
 - `Could not resolve service binding STAGEHAND_SERVICE`:
   - Stagehand worker not deployed yet, wrong account, or wrong target script name.
+- `STAGEHAND_SERVICE_URL` fallback errors:
+  - URL is wrong, host is down, or `/execute` route not reachable.
 - `lockfile is frozen`:
   - run `bun install` locally in that project, commit updated `bun.lock`, redeploy.
 - Worker name mismatch warning in CI:
