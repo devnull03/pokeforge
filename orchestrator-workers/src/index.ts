@@ -17,7 +17,7 @@ const mcpServer = new McpServer({
 	version: "1.0.0",
 });
 
- mcpServer.registerTool(
+mcpServer.registerTool(
 	"automate_website",
 	{
 		description: "Run the Pokeforge automation workflow for a target website task.",
@@ -96,12 +96,16 @@ app.get("/automate/:id", async (c) => {
 	}
 	const instance = await c.env.POKEFORGE_WORKFLOW.get(instanceId);
 	const status = await instance.status();
-	const output = "output" in instance && typeof (instance as { output?: () => Promise<unknown> }).output === "function" ? await (instance as { output: () => Promise<unknown> }).output() : undefined;
+	const output =
+		"output" in instance &&
+		typeof (instance as { output?: () => Promise<unknown> }).output === "function"
+			? await (instance as { output: () => Promise<unknown> }).output()
+			: undefined;
 	return c.json({ status, output });
 });
 
 /**
- * POST /debug/stagehand-smoke - Verify orchestrator -> stagehand transport on Cloudflare.
+ * POST /debug/stagehand-smoke - Run Stagehand in a Sandbox and verify cache + artifacts.
  * Body (optional): { websiteUrl?: string, task?: string }
  */
 app.post("/debug/stagehand-smoke", async (c) => {
@@ -112,36 +116,41 @@ app.post("/debug/stagehand-smoke", async (c) => {
 	const websiteUrl = body.websiteUrl ?? "https://example.com";
 	const task = body.task ?? "Observe the page and describe the main content.";
 
+	if (!c.env.BROWSERBASE_PROJECT_ID || !c.env.BROWSERBASE_API_KEY || !c.env.AI_API_KEY) {
+		return c.json({ ok: false, error: "Missing BROWSERBASE or AI credentials" }, 500);
+	}
+
 	try {
 		const discovery = await runStagehandDiscovery({
-			stagehandService: c.env.STAGEHAND_SERVICE,
-			stagehandUrl: c.env.STAGEHAND_SERVICE_URL,
+			sandboxNamespace: c.env.Sandbox,
 			websiteUrl,
 			task,
+			env: {
+				BROWSERBASE_PROJECT_ID: c.env.BROWSERBASE_PROJECT_ID,
+				BROWSERBASE_API_KEY: c.env.BROWSERBASE_API_KEY,
+				AI_PROVIDER: c.env.AI_PROVIDER ?? "openai",
+				AI_API_KEY: c.env.AI_API_KEY,
+			},
 			context: { smokeTest: true },
 		});
 
+		const cacheArtifacts = discovery.artifacts.filter((a) => a.name.startsWith("cache/"));
+
 		return c.json({
 			ok: !discovery.error,
-			transport: c.env.STAGEHAND_SERVICE ? "service-binding" : "url-fallback",
+			transport: "sandbox",
 			cacheKey: discovery.cacheKey,
 			sessionId: discovery.sessionId,
-			receivedArtifactCount: discovery.receivedArtifactCount ?? 0,
 			actionCount: discovery.actions.length,
 			artifactCount: discovery.artifacts.length,
+			cacheFileCount: cacheArtifacts.length,
+			cacheFileNames: cacheArtifacts.map((a) => a.name),
 			error: discovery.error,
 			logPreview: discovery.logs.slice(0, 400),
 		});
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
-		return c.json(
-			{
-				ok: false,
-				transport: c.env.STAGEHAND_SERVICE ? "service-binding" : "url-fallback",
-				error: message,
-			},
-			500,
-		);
+		return c.json({ ok: false, transport: "sandbox", error: message }, 500);
 	}
 });
 

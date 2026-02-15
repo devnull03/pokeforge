@@ -4,8 +4,8 @@ declare namespace Cloudflare {
 		GITHUB_OWNER?: string;
 		AI_PROVIDER?: "openai" | "anthropic" | "google";
 		AI_API_KEY?: string;
-		STAGEHAND_SERVICE?: Fetcher;
-		STAGEHAND_SERVICE_URL?: string;
+		BROWSERBASE_PROJECT_ID?: string;
+		BROWSERBASE_API_KEY?: string;
 		Sandbox: DurableObjectNamespace;
 	}
 }
