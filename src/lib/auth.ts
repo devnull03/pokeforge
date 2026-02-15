@@ -1,6 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
-import getDb from "./db";
+import { query } from "./db";
 
 const SECRET = new TextEncoder().encode(
   process.env.JWT_SECRET || "mcp-marketplace-secret-key-change-in-production"
@@ -38,8 +38,11 @@ export async function getCurrentUser(): Promise<UserPayload | null> {
 export async function getCurrentUserFull() {
   const user = await getCurrentUser();
   if (!user) return null;
-  const db = getDb();
-  return db.prepare("SELECT id, username, role, api_key, api_calls_used, api_calls_limit, created_at FROM users WHERE id = ?").get(user.id) as any;
+  const { rows } = await query(
+    "SELECT id, username, role, api_key, api_calls_used, api_calls_limit, created_at FROM users WHERE id = $1",
+    [user.id]
+  );
+  return rows[0] || null;
 }
 
 export function requireAuth(user: UserPayload | null) {

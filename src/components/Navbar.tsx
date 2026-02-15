@@ -37,6 +37,9 @@ export default function Navbar() {
             <Link href="/" className="neo-btn bg-white text-sm py-2 px-4">
               Browse
             </Link>
+            <Link href="/inspector" className="neo-btn bg-neo-purple text-white text-sm py-2 px-4">
+              🔍 Inspector
+            </Link>
 
             {loading ? (
               <div className="neo-badge bg-gray-200 animate-pulse w-20 h-8" />
@@ -99,6 +102,9 @@ export default function Navbar() {
           <div className="md:hidden pb-4 flex flex-col gap-2">
             <Link href="/" className="neo-btn bg-white text-sm py-2 text-center" onClick={() => setMenuOpen(false)}>
               Browse
+            </Link>
+            <Link href="/inspector" className="neo-btn bg-neo-purple text-white text-sm py-2 text-center" onClick={() => setMenuOpen(false)}>
+              🔍 Inspector
             </Link>
             {loading ? null : user ? (
               <>

@@ -108,6 +108,22 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, [creating, createMode]);
 
+  const deleteServer = async (serverId: number) => {
+    if (!confirm("Delete this MCP server? This cannot be undone.")) return;
+    try {
+      const res = await fetch("/api/user/servers", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: serverId }),
+      });
+      if (res.ok) {
+        setServers(servers.filter((s) => s.id !== serverId));
+      }
+    } catch {
+      // ignore
+    }
+  };
+
   const regenerateKey = async () => {
     if (!confirm("Generate a new API key? The old one will stop working.")) return;
     const res = await fetch("/api/user/apikey", { method: "POST" });
@@ -147,7 +163,7 @@ export default function DashboardPage() {
       setServers([data.server, ...servers]);
       setCreateMode(null);
       setNewServer({ name: "", description: "", url: "", website_url: "", color: COLORS[0], icon: ICONS[0] });
-      setFormSuccess("Server created! Pending admin approval.");
+      setFormSuccess("Server created and live!");
     } catch {
       setFormError("Failed to create server");
     } finally {
@@ -580,7 +596,7 @@ export default function DashboardPage() {
                 </button>
               </form>
               <p className="text-xs mt-3 text-gray-500">
-                Note: Manually added servers require admin approval before appearing in the marketplace.
+                Your server will appear in the marketplace immediately.
               </p>
             </div>
           </div>
@@ -631,6 +647,13 @@ export default function DashboardPage() {
                     </div>
                     <p className="text-xs text-gray-600 line-clamp-2">{s.description}</p>
                   </div>
+                  <button
+                    onClick={() => deleteServer(s.id)}
+                    className="neo-btn bg-neo-pink text-xs py-1 px-2 shrink-0"
+                    title="Delete server"
+                  >
+                    🗑
+                  </button>
                 </div>
               </div>
             ))}

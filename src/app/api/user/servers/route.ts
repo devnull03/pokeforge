@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
 function generateKey() {
@@ -17,12 +17,45 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = getDb();
-  const servers = db
-    .prepare("SELECT * FROM servers WHERE created_by = ? ORDER BY created_at DESC")
-    .all(user.id);
+  const { rows: servers } = await query(
+    "SELECT * FROM servers WHERE created_by = $1 ORDER BY created_at DESC",
+    [user.id]
+  );
 
   return NextResponse.json({ servers });
+}
+
+export async function DELETE(req: NextRequest) {
+  const user = await getCurrentUser();
+  if (!user) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  try {
+    const { id } = await req.json();
+
+    if (!id) {
+      return NextResponse.json({ error: "Server ID is required" }, { status: 400 });
+    }
+
+    // Only allow deleting your own servers
+    const result = await query(
+      "DELETE FROM servers WHERE id = $1 AND created_by = $2",
+      [id, user.id]
+    );
+
+    if (result.rowCount === 0) {
+      return NextResponse.json({ error: "Server not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error: any) {
+    console.error("Delete server error:", error);
+    return NextResponse.json(
+      { error: error.message || "Server error" },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -41,19 +74,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
     const apiKey = "sk_" + name.toLowerCase().replace(/\s/g, "_") + "_" + generateKey();
 
-    // User-created servers start inactive (need admin approval in the future)
-    const result = db
-      .prepare(
-        "INSERT INTO servers (name, description, url, website_url, color, icon, api_key, is_active, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)"
-      )
-      .run(name, description, url, website_url || null, color || "#ff6b9d", icon || "🌐", apiKey, user.id);
+    const { rows } = await query(
+      "INSERT INTO servers (name, description, url, website_url, color, icon, api_key, is_active, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, 1, $8) RETURNING *",
+      [name, description, url, website_url || null, color || "#ff6b9d", icon || "🌐", apiKey, user.id]
+    );
 
-    const server = db.prepare("SELECT * FROM servers WHERE id = ?").get(result.lastInsertRowid);
-    return NextResponse.json({ server }, { status: 201 });
-  } catch (error) {
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ server: rows[0] }, { status: 201 });
+  } catch (error: any) {
+    console.error("Create server error:", error);
+    return NextResponse.json(
+      { error: error.message || "Server error" },
+      { status: 500 }
+    );
   }
 }

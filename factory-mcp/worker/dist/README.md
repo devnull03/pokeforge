@@ -1,0 +1,1 @@
+This folder contains the built output assets for the worker "factory-mcp" generated at 2026-02-15T04:38:23.204Z.

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { createToken } from "@/lib/auth";
 
 function generateKey() {
@@ -37,12 +37,12 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
-    const existing = db
-      .prepare("SELECT id FROM users WHERE username = ?")
-      .get(username);
+    const { rows: existing } = await query(
+      "SELECT id FROM users WHERE username = $1",
+      [username]
+    );
 
-    if (existing) {
+    if (existing.length > 0) {
       return NextResponse.json(
         { error: "Username already taken" },
         { status: 409 }
@@ -52,21 +52,22 @@ export async function POST(req: NextRequest) {
     const hashedPassword = bcrypt.hashSync(password, 10);
     const apiKey = "mcp_" + generateKey();
 
-    const result = db
-      .prepare(
-        "INSERT INTO users (username, password, role, api_key, api_calls_limit) VALUES (?, ?, 'user', ?, 100)"
-      )
-      .run(username, hashedPassword, apiKey);
+    const { rows } = await query(
+      "INSERT INTO users (username, password, role, api_key, api_calls_limit) VALUES ($1, $2, 'user', $3, 100) RETURNING id",
+      [username, hashedPassword, apiKey]
+    );
+
+    const newId = rows[0].id;
 
     const token = await createToken({
-      id: result.lastInsertRowid as number,
+      id: newId,
       username,
       role: "user",
     });
 
     const response = NextResponse.json({
       user: {
-        id: result.lastInsertRowid,
+        id: newId,
         username,
         role: "user",
       },
@@ -82,6 +83,7 @@ export async function POST(req: NextRequest) {
 
     return response;
   } catch (error) {
+    console.error("Register error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

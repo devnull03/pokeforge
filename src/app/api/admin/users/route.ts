@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function GET() {
@@ -8,12 +8,9 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const db = getDb();
-  const users = db
-    .prepare(
-      "SELECT id, username, role, api_key, api_calls_used, api_calls_limit, created_at FROM users ORDER BY created_at DESC"
-    )
-    .all();
+  const { rows: users } = await query(
+    "SELECT id, username, role, api_key, api_calls_used, api_calls_limit, created_at FROM users ORDER BY created_at DESC"
+  );
 
   return NextResponse.json({ users });
 }
@@ -31,16 +28,16 @@ export async function PUT(req: NextRequest) {
       return NextResponse.json({ error: "User ID required" }, { status: 400 });
     }
 
-    const db = getDb();
     const fields: string[] = [];
     const values: any[] = [];
+    let paramIdx = 1;
 
     if (api_calls_limit !== undefined) {
-      fields.push("api_calls_limit = ?");
+      fields.push(`api_calls_limit = $${paramIdx++}`);
       values.push(api_calls_limit);
     }
     if (role !== undefined) {
-      fields.push("role = ?");
+      fields.push(`role = $${paramIdx++}`);
       values.push(role);
     }
 
@@ -49,14 +46,19 @@ export async function PUT(req: NextRequest) {
     }
 
     values.push(userId);
-    db.prepare(`UPDATE users SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    await query(
+      `UPDATE users SET ${fields.join(", ")} WHERE id = $${paramIdx}`,
+      values
+    );
 
-    const updated = db
-      .prepare("SELECT id, username, role, api_key, api_calls_used, api_calls_limit, created_at FROM users WHERE id = ?")
-      .get(userId);
+    const { rows } = await query(
+      "SELECT id, username, role, api_key, api_calls_used, api_calls_limit, created_at FROM users WHERE id = $1",
+      [userId]
+    );
 
-    return NextResponse.json({ user: updated });
+    return NextResponse.json({ user: rows[0] });
   } catch (error) {
+    console.error("Admin update user error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

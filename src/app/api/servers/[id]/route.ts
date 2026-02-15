@@ -1,18 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 
 export async function GET(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
-    const db = getDb();
     const apiKey = req.headers.get("x-api-key");
 
     if (apiKey) {
-      const user = db
-        .prepare("SELECT * FROM users WHERE api_key = ?")
-        .get(apiKey) as any;
+      const { rows } = await query("SELECT * FROM users WHERE api_key = $1", [apiKey]);
+      const user = rows[0];
 
       if (!user) {
         return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
@@ -25,19 +23,24 @@ export async function GET(
         );
       }
 
-      db.prepare("UPDATE users SET api_calls_used = api_calls_used + 1 WHERE id = ?").run(user.id);
+      await query(
+        "UPDATE users SET api_calls_used = api_calls_used + 1 WHERE id = $1",
+        [user.id]
+      );
     }
 
-    const server = db
-      .prepare("SELECT * FROM servers WHERE id = ? AND is_active = 1")
-      .get(params.id) as any;
+    const { rows } = await query(
+      "SELECT * FROM servers WHERE id = $1 AND is_active = 1",
+      [params.id]
+    );
 
-    if (!server) {
+    if (rows.length === 0) {
       return NextResponse.json({ error: "Server not found" }, { status: 404 });
     }
 
-    return NextResponse.json({ server });
+    return NextResponse.json({ server: rows[0] });
   } catch (error) {
+    console.error("Get server error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
 function generateKey() {
@@ -17,8 +17,9 @@ export async function GET() {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const db = getDb();
-  const servers = db.prepare("SELECT * FROM servers ORDER BY created_at DESC").all();
+  const { rows: servers } = await query(
+    "SELECT * FROM servers ORDER BY created_at DESC"
+  );
   return NextResponse.json({ servers });
 }
 
@@ -38,27 +39,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
     const apiKey = "sk_" + name.toLowerCase().replace(/\s/g, "_") + "_" + generateKey();
 
-    const result = db
-      .prepare(
-        "INSERT INTO servers (name, description, url, website_url, color, icon, api_key, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
-      )
-      .run(
-        name,
-        description,
-        url,
-        website_url || null,
-        color || "#ff6b9d",
-        icon || "🌐",
-        apiKey,
-        user.id
-      );
+    const { rows } = await query(
+      "INSERT INTO servers (name, description, url, website_url, color, icon, api_key, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *",
+      [name, description, url, website_url || null, color || "#ff6b9d", icon || "🌐", apiKey, user.id]
+    );
 
-    const server = db.prepare("SELECT * FROM servers WHERE id = ?").get(result.lastInsertRowid);
-    return NextResponse.json({ server }, { status: 201 });
+    return NextResponse.json({ server: rows[0] }, { status: 201 });
   } catch (error) {
+    console.error("Admin create server error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

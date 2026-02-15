@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { createToken } from "@/lib/auth";
 
 export async function POST(req: NextRequest) {
@@ -14,10 +14,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const db = getDb();
-    const user = db
-      .prepare("SELECT * FROM users WHERE username = ?")
-      .get(username) as any;
+    const { rows } = await query("SELECT * FROM users WHERE username = $1", [username]);
+    const user = rows[0];
 
     if (!user || !bcrypt.compareSync(password, user.password)) {
       return NextResponse.json(
@@ -44,12 +42,13 @@ export async function POST(req: NextRequest) {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
-      maxAge: 60 * 60 * 24 * 7, // 7 days
+      maxAge: 60 * 60 * 24 * 7,
       path: "/",
     });
 
     return response;
   } catch (error) {
+    console.error("Login error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

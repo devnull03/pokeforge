@@ -1,19 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
   try {
-    const db = getDb();
     const { searchParams } = new URL(req.url);
     const apiKey = req.headers.get("x-api-key") || searchParams.get("api_key");
 
-    // If API key provided, validate and track usage
     if (apiKey) {
-      const user = db
-        .prepare("SELECT * FROM users WHERE api_key = ?")
-        .get(apiKey) as any;
+      const { rows } = await query("SELECT * FROM users WHERE api_key = $1", [apiKey]);
+      const user = rows[0];
 
       if (!user) {
         return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
@@ -26,16 +23,19 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      // Increment usage
-      db.prepare("UPDATE users SET api_calls_used = api_calls_used + 1 WHERE id = ?").run(user.id);
+      await query(
+        "UPDATE users SET api_calls_used = api_calls_used + 1 WHERE id = $1",
+        [user.id]
+      );
     }
 
-    const servers = db
-      .prepare("SELECT id, name, description, url, website_url, color, icon, is_active, created_at FROM servers WHERE is_active = 1 ORDER BY created_at DESC")
-      .all();
+    const { rows: servers } = await query(
+      "SELECT id, name, description, url, website_url, color, icon, is_active, created_at FROM servers WHERE is_active = 1 ORDER BY created_at DESC"
+    );
 
     return NextResponse.json({ servers });
   } catch (error) {
+    console.error("List servers error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

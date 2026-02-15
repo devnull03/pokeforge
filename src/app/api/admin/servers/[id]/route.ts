@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
 export async function PUT(
@@ -13,19 +13,22 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const db = getDb();
 
-    const existing = db.prepare("SELECT * FROM servers WHERE id = ?").get(params.id);
-    if (!existing) {
+    const { rows: existing } = await query(
+      "SELECT * FROM servers WHERE id = $1",
+      [params.id]
+    );
+    if (existing.length === 0) {
       return NextResponse.json({ error: "Server not found" }, { status: 404 });
     }
 
     const fields: string[] = [];
     const values: any[] = [];
+    let paramIdx = 1;
 
     for (const key of ["name", "description", "url", "website_url", "color", "icon", "is_active"]) {
       if (body[key] !== undefined) {
-        fields.push(`${key} = ?`);
+        fields.push(`${key} = $${paramIdx++}`);
         values.push(body[key]);
       }
     }
@@ -35,11 +38,15 @@ export async function PUT(
     }
 
     values.push(params.id);
-    db.prepare(`UPDATE servers SET ${fields.join(", ")} WHERE id = ?`).run(...values);
+    await query(
+      `UPDATE servers SET ${fields.join(", ")} WHERE id = $${paramIdx}`,
+      values
+    );
 
-    const server = db.prepare("SELECT * FROM servers WHERE id = ?").get(params.id);
-    return NextResponse.json({ server });
+    const { rows } = await query("SELECT * FROM servers WHERE id = $1", [params.id]);
+    return NextResponse.json({ server: rows[0] });
   } catch (error) {
+    console.error("Admin update server error:", error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
@@ -53,10 +60,9 @@ export async function DELETE(
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const db = getDb();
-  const result = db.prepare("DELETE FROM servers WHERE id = ?").run(params.id);
+  const result = await query("DELETE FROM servers WHERE id = $1", [params.id]);
 
-  if (result.changes === 0) {
+  if (result.rowCount === 0) {
     return NextResponse.json({ error: "Server not found" }, { status: 404 });
   }
 

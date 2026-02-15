@@ -1,14 +1,13 @@
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import ServerCard from "@/components/ServerCard";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  const db = getDb();
-  const servers = db
-    .prepare("SELECT * FROM servers WHERE is_active = 1 ORDER BY created_at DESC")
-    .all() as any[];
+export default async function Home() {
+  const { rows: servers } = await query(
+    "SELECT * FROM servers WHERE is_active = 1 ORDER BY created_at DESC"
+  );
 
   return (
     <div>
@@ -35,6 +34,9 @@ export default function Home() {
               <a href="#servers" className="neo-btn bg-white">
                 Browse Servers ↓
               </a>
+              <Link href="/inspector" className="neo-btn bg-neo-purple text-white">
+                🔍 MCP Inspector
+              </Link>
             </div>
           </div>
 
@@ -46,12 +48,10 @@ export default function Home() {
       </section>
 
       {/* Stats */}
-      <section className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-12">
+      <section className="grid grid-cols-2 gap-4 mb-12">
         {[
           { label: "MCP Servers", value: servers.length, color: "bg-neo-blue" },
           { label: "Websites Connected", value: servers.length, color: "bg-neo-pink" },
-          { label: "API Calls Today", value: "1.2K", color: "bg-neo-green" },
-          { label: "Active Users", value: "42", color: "bg-neo-purple" },
         ].map((stat) => (
           <div key={stat.label} className={`neo-card p-4 ${stat.color}`}>
             <div className="text-3xl font-bold">{stat.value}</div>

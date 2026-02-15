@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import getDb from "@/lib/db";
+import { query } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
 function generateKey() {
@@ -17,12 +17,12 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = getDb();
-  const userData = db
-    .prepare("SELECT api_key, api_calls_used, api_calls_limit FROM users WHERE id = ?")
-    .get(user.id) as any;
+  const { rows } = await query(
+    "SELECT api_key, api_calls_used, api_calls_limit FROM users WHERE id = $1",
+    [user.id]
+  );
 
-  return NextResponse.json(userData);
+  return NextResponse.json(rows[0]);
 }
 
 export async function POST() {
@@ -31,9 +31,11 @@ export async function POST() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const db = getDb();
   const newKey = "mcp_" + generateKey();
-  db.prepare("UPDATE users SET api_key = ?, api_calls_used = 0 WHERE id = ?").run(newKey, user.id);
+  await query(
+    "UPDATE users SET api_key = $1, api_calls_used = 0 WHERE id = $2",
+    [newKey, user.id]
+  );
 
   return NextResponse.json({ api_key: newKey });
 }
