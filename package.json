@@ -1,0 +1,21 @@
+{
+  "name": "mcp-factory",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Meta-MCP server: discovers websites, generates MCP servers, and deploys them to Modal",
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "start:http": "tsx src/server.ts --http"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@browserbasehq/stagehand": "latest",
+    "dotenv": "^16.4.7",
+    "fastmcp": "^3.32.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "tsx": "4.19.2",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,8 @@
+export const API_KEYS = {
+  BROWSERBASE_PROJECT_ID: process.env.BROWSERBASE_PROJECT_ID ?? "",
+  BROWSERBASE_API_KEY: process.env.BROWSERBASE_API_KEY ?? "",
+  ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY ?? "",
+  MODAL_TOKEN_ID: process.env.MODAL_TOKEN_ID ?? "",
+  MODAL_TOKEN_SECRET: process.env.MODAL_TOKEN_SECRET ?? "",
+};
