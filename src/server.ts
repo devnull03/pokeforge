@@ -28,6 +28,112 @@ function domainFromUrl(url: string): string {
 }
 
 type ProgressReporter = (update: { progress: number; total: number }) => Promise<void>;
+type PipelineStage = "queued" | "discovering" | "generating" | "deploying" | "completed" | "failed";
+
+interface PipelineJob {
+  id: string;
+  url: string;
+  turns: number;
+  stage: PipelineStage;
+  progress: number;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+  error?: string;
+  result?: {
+    endpointCount: number;
+    turnCount: number;
+    generatedToolCount: number;
+    generatedTools: string[];
+    deployUrl: string;
+  };
+}
+
+const pipelineJobs = new Map<string, PipelineJob>();
+
+function createJobId(): string {
+  return `job_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function stageMessage(stage: PipelineStage): string {
+  switch (stage) {
+    case "queued":
+      return "Job is queued and will start shortly.";
+    case "discovering":
+      return "Running discovery on the target website.";
+    case "generating":
+      return "Generating MCP server code from discovery output.";
+    case "deploying":
+      return "Deploying generated server to Modal.";
+    case "completed":
+      return "Pipeline finished successfully.";
+    case "failed":
+      return "Pipeline failed. Check the error for details.";
+  }
+}
+
+function formatPipelineResult(url: string, job: PipelineJob): string {
+  if (!job.result) {
+    return `No result is available for ${url}.`;
+  }
+  const toolList = job.result.generatedTools
+    .map((t, i) => `  ${i + 1}. ${t}`)
+    .join("\n");
+
+  return (
+    `Pipeline complete for ${url}\n\n` +
+    `Discovery: ${job.result.endpointCount} endpoints found (${job.result.turnCount} turns)\n` +
+    `Generated: ${job.result.generatedToolCount} tools\n` +
+    `Deployed: ${job.result.deployUrl}\n\n` +
+    `Tools:\n${toolList}\n\n` +
+    `Connect using Streamable HTTP transport at the URL above.`
+  );
+}
+
+async function runPipelineJob(jobId: string): Promise<void> {
+  const job = pipelineJobs.get(jobId);
+  if (!job) {
+    return;
+  }
+
+  try {
+    job.stage = "discovering";
+    job.progress = 10;
+    job.updatedAt = new Date().toISOString();
+
+    const discoverResult = await discoverWebsite(job.url, job.turns);
+
+    job.stage = "generating";
+    job.progress = 45;
+    job.updatedAt = new Date().toISOString();
+
+    const generateResult = await generateServer(job.url);
+
+    job.stage = "deploying";
+    job.progress = 80;
+    job.updatedAt = new Date().toISOString();
+
+    const domain = domainFromUrl(job.url);
+    const serverDir = path.resolve(__dirname, "..", "generated-servers", domain);
+    const deployResult = await deployToModal(serverDir);
+
+    job.stage = "completed";
+    job.progress = 100;
+    job.completedAt = new Date().toISOString();
+    job.updatedAt = job.completedAt;
+    job.result = {
+      endpointCount: discoverResult.endpointCount,
+      turnCount: discoverResult.turnCount,
+      generatedToolCount: generateResult.toolNames.length,
+      generatedTools: generateResult.toolNames,
+      deployUrl: deployResult.mcpEndpoint,
+    };
+  } catch (error) {
+    job.stage = "failed";
+    job.updatedAt = new Date().toISOString();
+    job.error = error instanceof Error ? error.message : String(error);
+  }
+}
 
 function startProgressKeepalive(
   reportProgress: ProgressReporter,
@@ -206,13 +312,13 @@ server.addTool({
   },
 });
 
-// ─── Tool 5: Full Pipeline ──────────────────────────────────────
+// ─── Tool 5: Full Pipeline (Legacy Blocking) ────────────────────
 
 server.addTool({
   name: "full_pipeline",
   description:
     "End-to-end pipeline: discover a website, generate an MCP server, and deploy it to Modal. " +
-    "Returns the live URL. Takes 2-10 minutes total.",
+    "Returns the live URL. Takes 2-10 minutes total. (Legacy blocking behavior)",
   parameters: z.object({
     url: z.string().describe("Full URL of the website (e.g. https://www.amazon.com)"),
     turns: z.number().optional().describe("Max exploration turns for discovery (default: 15)"),
@@ -255,6 +361,120 @@ server.addTool({
     } finally {
       keepalive.stop();
     }
+  },
+});
+
+// ─── Tool 6: Start Full Pipeline (Async) ───────────────────────
+
+server.addTool({
+  name: "full_pipeline_start",
+  description:
+    "Starts the end-to-end pipeline asynchronously: discover, generate, and deploy. " +
+    "Returns a job ID immediately. Use full_pipeline_status and full_pipeline_result next.",
+  parameters: z.object({
+    url: z.string().describe("Full URL of the website (e.g. https://www.amazon.com)"),
+    turns: z.number().optional().describe("Max exploration turns for discovery (default: 15)"),
+  }),
+  execute: async (args, { log }) => {
+    const jobId = createJobId();
+    const now = new Date().toISOString();
+    pipelineJobs.set(jobId, {
+      id: jobId,
+      url: args.url,
+      turns: args.turns ?? 15,
+      stage: "queued",
+      progress: 0,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await log.info(`Created pipeline job ${jobId} for ${args.url}`);
+    void runPipelineJob(jobId);
+
+    return (
+      `Pipeline job started.\n\n` +
+      `Job ID: ${jobId}\n` +
+      `URL: ${args.url}\n` +
+      `Status: queued\n\n` +
+      `Next steps:\n` +
+      `1) Call full_pipeline_status with this job ID\n` +
+      `2) Once completed, call full_pipeline_result with this job ID`
+    );
+  },
+});
+
+// ─── Tool 7: Full Pipeline Status ───────────────────────────────
+
+server.addTool({
+  name: "full_pipeline_status",
+  description:
+    "Check status of an async full pipeline job started via full_pipeline_start.",
+  parameters: z.object({
+    job_id: z.string().describe("Job ID returned by full_pipeline_start"),
+  }),
+  execute: async (args) => {
+    const job = pipelineJobs.get(args.job_id);
+    if (!job) {
+      return `No pipeline job found for job_id=${args.job_id}`;
+    }
+
+    const statusLines = [
+      `Job ID: ${job.id}`,
+      `URL: ${job.url}`,
+      `Stage: ${job.stage}`,
+      `Message: ${stageMessage(job.stage)}`,
+      `Progress: ${job.progress}%`,
+      `Created: ${job.createdAt}`,
+      `Updated: ${job.updatedAt}`,
+    ];
+
+    if (job.completedAt) {
+      statusLines.push(`Completed: ${job.completedAt}`);
+    }
+
+    if (job.error) {
+      statusLines.push(`Error: ${job.error}`);
+    }
+
+    return statusLines.join("\n");
+  },
+});
+
+// ─── Tool 8: Full Pipeline Result ───────────────────────────────
+
+server.addTool({
+  name: "full_pipeline_result",
+  description:
+    "Get final output of an async full pipeline job. Returns result only when completed.",
+  parameters: z.object({
+    job_id: z.string().describe("Job ID returned by full_pipeline_start"),
+  }),
+  execute: async (args) => {
+    const job = pipelineJobs.get(args.job_id);
+    if (!job) {
+      return `No pipeline job found for job_id=${args.job_id}`;
+    }
+
+    if (job.stage === "failed") {
+      return (
+        `Pipeline job failed.\n\n` +
+        `Job ID: ${job.id}\n` +
+        `URL: ${job.url}\n` +
+        `Error: ${job.error ?? "Unknown error"}`
+      );
+    }
+
+    if (job.stage !== "completed") {
+      return (
+        `Pipeline result is not ready yet.\n\n` +
+        `Job ID: ${job.id}\n` +
+        `Current stage: ${job.stage}\n` +
+        `Progress: ${job.progress}%\n\n` +
+        `Call full_pipeline_status to keep polling.`
+      );
+    }
+
+    return formatPipelineResult(job.url, job);
   },
 });
 
