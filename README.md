@@ -4,141 +4,103 @@ Automatic MCP server generation for browser automation.
 
 ## Projects
 
-This repo contains two Cloudflare Workers:
+This repo currently uses:
 
 1. `orchestrator-workers/` - Cloudflare Worker with:
    - MCP endpoint (`/mcp`)
    - automation endpoints (`/automate`, `/automate/:id`)
-   - workflows + codegen + GitHub publish
-2. `stagehand-service/` - Browserbase + Stagehand execution service (`/execute`)
+   - workflow + codegen + GitHub publish
+   - debug endpoints for Stagehand and Browserbase Functions probing
+2. `browserbase-functions/` - Browserbase Functions project used to test one-shot Stagehand cache capture.
 
 ## Architecture
 
-1. `orchestrator-workers`:
-   - Exposes MCP tool `automate_website` at `/mcp`
-   - Calls `stagehand-service` via Cloudflare Service Binding
-   - Codegens MCP server from discovered actions/cache
-   - Tests generated code in Cloudflare Sandbox
-   - Pushes to GitHub and returns repo URL
-2. `stagehand-service`:
-   - Executes browser steps using Stagehand + Browserbase
-   - Returns step logs + artifacts (screenshots/html/cache)
+`orchestrator-workers` runs the main Pokeforge workflow:
 
-## Local Development (Bun)
+1. Discover actions/cache from a target site
+2. Generate MCP server code
+3. Validate generated code
+4. Push generated code to GitHub
 
-### 1) Stagehand service
+`browserbase-functions` is a separate test harness for validating cache extraction behavior when running Stagehand inside Browserbase Functions.
+
+## Local Development
+
+### 1) Browserbase functions (pnpm)
 
 ```bash
-cd stagehand-service
-cp .env.example .env
-# Set BROWSERBASE_PROJECT_ID, BROWSERBASE_API_KEY, AI_PROVIDER, AI_API_KEY
-bun install
-bun run dev
+cd browserbase-functions
+pnpm install
+pnpm run dev
 ```
 
-Runs on `http://localhost:8788`
+Publish:
 
-### 2) Orchestrator workers
+```bash
+pnpm run publish
+```
+
+### 2) Orchestrator workers (bun)
 
 ```bash
 cd orchestrator-workers
 bun install
-# Optional for local fallback only (without Service Binding):
-# set STAGEHAND_SERVICE_URL=http://localhost:8788
 bun run dev
 ```
 
-Runs on `http://localhost:8787`
+Runs on `http://localhost:8787`.
 
-## Cloudflare Deployment 
+## Deployment
 
-Deploy in this order:
+### A) Required secrets / vars for `orchestrator-workers`
 
-1. Deploy `stagehand-service`
-2. Deploy `orchestrator-workers` (depends on service binding to stagehand)
-
-### A) Cloudflare Worker Build Settings
-
-For both Workers in Cloudflare:
-- Install command: `bun install --frozen-lockfile`
-- Build command: `bun run build`
-- Deploy command: `npx wrangler deploy`
-- Root directory:
-  - `stagehand-service` project: `stagehand-service`
-  - `orchestrator-workers` project: `orchestrator-workers`
-
-### B) Required Secrets / Vars
-
-Set these in Cloudflare for `stagehand-service`:
+- `AI_PROVIDER` (var)
+- `AI_API_KEY` (secret)
 - `BROWSERBASE_PROJECT_ID` (secret)
 - `BROWSERBASE_API_KEY` (secret)
-- `AI_PROVIDER` (var; example: `openai` or `google`)
-- `AI_API_KEY` (secret)
+- `GITHUB_TOKEN` (secret)
+- `GITHUB_OWNER` (optional var)
+- `BROWSERBASE_CACHE_PROBE_FUNCTION_ID` (optional var; used by debug probe endpoint)
 
-Set these in Cloudflare for `orchestrator-workers`:
-- `AI_PROVIDER` (var; currently codegen supports `openai` and `google`)
-- `AI_API_KEY` (secret)
-- `GITHUB_TOKEN` (secret; required for repo creation)
-- `GITHUB_OWNER` (optional; auto-resolved from token if omitted)
-- `STAGEHAND_SERVICE_URL` (optional var; only for non-binding fallback)
+### B) Setup commands
 
-### B.1) Copy/Paste Setup Commands
-
-Run from repo root:
+From repo root:
 
 ```bash
-# Stagehand service secrets
-cd stagehand-service
+cd orchestrator-workers
+bunx wrangler secret put AI_API_KEY
 bunx wrangler secret put BROWSERBASE_PROJECT_ID
 bunx wrangler secret put BROWSERBASE_API_KEY
-bunx wrangler secret put AI_API_KEY
-
-# Orchestrator workers secrets
-cd ../orchestrator-workers
-bunx wrangler secret put AI_API_KEY
 bunx wrangler secret put GITHUB_TOKEN
 ```
 
-Non-secret vars (`AI_PROVIDER`, optional `GITHUB_OWNER`, optional `STAGEHAND_SERVICE_URL`) should be set in each project's `wrangler.jsonc` `vars` section (or in the Cloudflare dashboard for the Worker).
+## Browserbase Functions Cache Probe
 
-### C) Service Binding Requirement
+Use this to test whether a Browserbase Function can return Stagehand cache files from a single run.
 
-`orchestrator-workers/wrangler.jsonc` includes:
-- `services` binding `STAGEHAND_SERVICE -> stagehand-service`
-
-The target script name must exactly match the deployed script name in Cloudflare.  
-If Cloudflare renames scripts in CI, update binding `service` to that exact deployed name.
-
-### D) Durable Object Migration Requirement
-
-`orchestrator-workers` uses Sandbox DO and must keep migration configured:
-- `"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Sandbox"] }]`
-
-### E) Post-deploy Smoke Test
-
-After both deploy successfully:
+1. Publish `browserbase-functions/index.ts`.
+2. Invoke the orchestrator debug endpoint:
 
 ```bash
-curl -X POST "https://<orchestrator-domain>/debug/stagehand-smoke" \
+curl -X POST "https://<orchestrator-domain>/debug/browserbase-functions-cache-probe" \
   -H "Content-Type: application/json" \
-  -d '{"websiteUrl":"https://example.com","task":"Observe the page and summarize content"}'
+  -d '{
+    "functionId": "<BROWSERBASE_FUNCTION_ID>",
+    "websiteUrl": "https://example.com",
+    "task": "Observe the page and summarize content",
+    "rawParams": {
+      "browserbaseProjectId": "<BROWSERBASE_PROJECT_ID>",
+      "browserbaseApiKey": "<BROWSERBASE_API_KEY>",
+      "aiApiKey": "<AI_API_KEY>",
+      "aiProvider": "openai"
+    }
+  }'
 ```
 
-Expect:
-- `ok: true`
-- `transport: "service-binding"` (or `url-fallback` when using fallback URL mode)
+Key response fields:
 
-## Common Deployment Issues
-
-- `Could not resolve service binding STAGEHAND_SERVICE`:
-  - Stagehand worker not deployed yet, wrong account, or wrong target script name.
-- `STAGEHAND_SERVICE_URL` fallback errors:
-  - URL is wrong, host is down, or `/execute` route not reachable.
-- `lockfile is frozen`:
-  - run `bun install` locally in that project, commit updated `bun.lock`, redeploy.
-- Worker name mismatch warning in CI:
-  - align Cloudflare project worker name and `wrangler.jsonc` name to avoid confusion.
-
-## Repo
-
-Set your repository URL here after deployment.
+- `hasCacheFiles`
+- `cacheArtifactCount`
+- `cacheArtifactNames`
+- `explicitCacheFileCount`
+- `explicitCacheFiles`

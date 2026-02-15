@@ -6,6 +6,7 @@ declare namespace Cloudflare {
 		AI_API_KEY?: string;
 		BROWSERBASE_PROJECT_ID?: string;
 		BROWSERBASE_API_KEY?: string;
+		BROWSERBASE_CACHE_PROBE_FUNCTION_ID?: string;
 		Sandbox: DurableObjectNamespace;
 	}
 }
