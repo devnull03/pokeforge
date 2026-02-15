@@ -1,6 +1,7 @@
 {
 	"$schema": "./node_modules/wrangler/config-schema.json",
 	"name": "stagehand-service",
+	"workers_dev": false,
 	"main": "src/index.ts",
 	"compatibility_date": "2025-01-29",
 	"compatibility_flags": ["nodejs_compat"],

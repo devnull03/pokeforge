@@ -6,9 +6,9 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 	"vars": {
-		"STAGEHAND_SERVICE_URL": "http://localhost:8788",
 		"GITHUB_OWNER": "devnull03"
 	},
+	"services": [{ "binding": "STAGEHAND_SERVICE", "service": "stagehand-service" }],
 	"durable_objects": {
 		"bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }]
 	},
