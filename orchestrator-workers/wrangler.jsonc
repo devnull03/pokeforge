@@ -12,6 +12,7 @@
 	"durable_objects": {
 		"bindings": [{ "name": "Sandbox", "class_name": "Sandbox" }]
 	},
+	"migrations": [{ "tag": "v1", "new_sqlite_classes": ["Sandbox"] }],
 	"workflows": [
 		{ "name": "pokeforge-workflow", "binding": "POKEFORGE_WORKFLOW", "class_name": "PokeforgeWorkflow" }
 	]
