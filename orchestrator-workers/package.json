@@ -1,0 +1,36 @@
+{
+	"name": "orchestrator-workers",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"preview": "bun run build && vite preview",
+		"deploy": "bun run build && wrangler deploy",
+		"format": "oxfmt --write .",
+		"test": "vitest",
+		"test:ci": "vitest --watch=false",
+		"cf-typegen": "wrangler types",
+		"lint": "oxlint",
+		"lint:fix": "oxlint --fix",
+		"type-check": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@modelcontextprotocol/sdk": "^1.20.0",
+		"agents": "^0.4.1",
+		"ai": "^6.0.82",
+		"hono": "^4.11.9",
+		"workers-ai-provider": "^3.1.1",
+		"zod": "^4.3.6"
+	},
+	"devDependencies": {
+		"@cloudflare/vite-plugin": "^1.25.0",
+		"@cloudflare/vitest-pool-workers": "^0.12.12",
+		"oxfmt": "^0.32.0",
+		"oxlint": "^1.47.0",
+		"typescript": "5.9.3",
+		"vite": "^7.3.1",
+		"vitest": "~3.2.4",
+		"wrangler": "^4.65.0"
+	}
+}
