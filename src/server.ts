@@ -90,6 +90,44 @@ function formatPipelineResult(url: string, job: PipelineJob): string {
   );
 }
 
+function mcpUsageGuide(): string {
+  return (
+    `MCP Factory Usage Guide\n\n` +
+    `Purpose\n` +
+    `- This server discovers website workflows, generates MCP servers, deploys them to Modal, and can replay endpoint steps.\n\n` +
+    `Tool selection\n` +
+    `- discover: Use first when no discovery exists for a URL.\n` +
+    `- generate: Use after discover to create Python MCP server files.\n` +
+    `- deploy: Use after generate to publish the server.\n` +
+    `- replay: Use to validate one discovered endpoint with optional params.\n` +
+    `- full_pipeline: Blocking one-call flow (2-10 min).\n` +
+    `- full_pipeline_start + full_pipeline_status + full_pipeline_result: Preferred async flow.\n\n` +
+    `Recommended default workflow (async)\n` +
+    `1) Call full_pipeline_start with { url, turns? }.\n` +
+    `2) Poll full_pipeline_status with returned job_id every 10-20 seconds.\n` +
+    `3) When stage=completed, call full_pipeline_result to get deploy URL and generated tools.\n` +
+    `4) If stage=failed, surface the error and stop polling.\n\n` +
+    `Recommended manual workflow\n` +
+    `1) discover(url, turns?)\n` +
+    `2) generate(url)\n` +
+    `3) deploy(url)\n` +
+    `4) optional replay(url, endpoint_name, params_json?)\n\n` +
+    `Parameter guidance\n` +
+    `- url must be a full URL like https://example.com.\n` +
+    `- turns default is 15; reduce for simple sites.\n` +
+    `- params_json for replay should be a JSON object string.\n\n` +
+    `Error handling\n` +
+    `- For missing job_id: start a new async pipeline job.\n` +
+    `- For failed job: report full error and do not call result repeatedly.\n` +
+    `- For partial/manual failures: rerun the failed stage with the same url.\n\n` +
+    `Output interpretation\n` +
+    `- Discovery returns endpoint names/descriptions and saved path.\n` +
+    `- Generate returns output dir and generated tool names.\n` +
+    `- Deploy returns streamable HTTP endpoint URL.\n` +
+    `- Pipeline result returns endpoint count, tool list, and deploy URL.`
+  );
+}
+
 async function runPipelineJob(jobId: string): Promise<void> {
   const job = pipelineJobs.get(jobId);
   if (!job) {
@@ -475,6 +513,26 @@ server.addTool({
     }
 
     return formatPipelineResult(job.url, job);
+  },
+});
+
+// ─── Tool 9: Usage Guide ─────────────────────────────────────────
+
+server.addTool({
+  name: "usage_guide",
+  description:
+    "Returns exact guidance for how an AI agent should choose and sequence MCP Factory tools.",
+  parameters: z.object({
+    objective: z
+      .string()
+      .optional()
+      .describe("Optional objective context (e.g. 'deploy quickly', 'debug endpoint')"),
+  }),
+  execute: async (args) => {
+    const objectiveHeader = args.objective
+      ? `Objective: ${args.objective}\n\n`
+      : "Objective: not provided\n\n";
+    return objectiveHeader + mcpUsageGuide();
   },
 });
 
