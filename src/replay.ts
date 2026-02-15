@@ -11,6 +11,7 @@ export interface ReplayOutput {
   endpointName: string;
   stepsExecuted: number;
   totalSteps: number;
+  sessionId?: string;
   extractedData?: string;
   error?: string;
 }
@@ -38,9 +39,11 @@ export async function replayActions(
   const browser = new BrowserRunner({ websiteUrl });
   let stepsExecuted = 0;
   let extractedData: string | undefined;
+  let sessionId: string | undefined;
 
   try {
     await browser.init();
+    sessionId = browser.getBrowserbaseSessionID();
 
     // Seed action map from discovery so act-by-id steps work
     if (discovery.exploration?.actionById) {
@@ -78,6 +81,7 @@ export async function replayActions(
       endpointName,
       stepsExecuted,
       totalSteps: endpoint.steps.length,
+      sessionId,
       extractedData,
     };
   } catch (e) {
@@ -86,6 +90,7 @@ export async function replayActions(
       endpointName,
       stepsExecuted,
       totalSteps: endpoint.steps.length,
+      sessionId,
       error: (e as Error).message,
     };
   } finally {

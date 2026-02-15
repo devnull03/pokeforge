@@ -3,9 +3,12 @@
  * Uses MODAL_TOKEN_ID and MODAL_TOKEN_SECRET for auth (no interactive login).
  */
 
-import { execSync } from "child_process";
+import { execFile } from "child_process";
 import { existsSync } from "fs";
 import path from "path";
+import { promisify } from "util";
+
+const execFileAsync = promisify(execFile);
 
 export interface DeployOutput {
   url: string;
@@ -30,7 +33,7 @@ export async function deployToModal(serverDir: string): Promise<DeployOutput> {
     );
   }
 
-  const output = execSync("modal deploy deploy_modal.py", {
+  const { stdout, stderr } = await execFileAsync("modal", ["deploy", "deploy_modal.py"], {
     cwd: serverDir,
     encoding: "utf-8",
     timeout: 180_000,
@@ -40,6 +43,7 @@ export async function deployToModal(serverDir: string): Promise<DeployOutput> {
       MODAL_TOKEN_SECRET: process.env.MODAL_TOKEN_SECRET,
     },
   });
+  const output = `${stdout ?? ""}${stderr ?? ""}`;
 
   // Parse URL from Modal output (e.g. "https://jniranja--mcp-xxx-web.modal.run")
   const urlMatch = output.match(/https:\/\/\S+\.modal\.run/);

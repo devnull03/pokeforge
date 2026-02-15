@@ -53,6 +53,7 @@ export interface DiscoveryOutput {
   endpointCount: number;
   turnCount: number;
   savedPath: string;
+  sessionId?: string;
 }
 
 /**
@@ -64,8 +65,10 @@ export async function discoverWebsite(
   maxTurns: number = 15
 ): Promise<DiscoveryOutput> {
   const browser = new BrowserRunner({ websiteUrl: url });
+  let sessionId: string | undefined;
   try {
     await browser.init();
+    sessionId = browser.getBrowserbaseSessionID();
 
     // Step 1: Navigate and extract homepage
     await browser.goto(url);
@@ -99,6 +102,7 @@ export async function discoverWebsite(
       endpointCount: endpoints.length,
       turnCount,
       savedPath,
+      sessionId,
     };
   } finally {
     await browser.close().catch(() => {});

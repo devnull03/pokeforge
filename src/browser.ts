@@ -31,6 +31,7 @@ export interface BrowserRunnerOptions {
 
 export class BrowserRunner {
   private stagehand: Stagehand | null = null;
+  private initPromise: Promise<void> | null = null;
   private websiteUrl: string;
   private exploredPages: ExploredPage[] = [];
   private actionById: Record<string, { pageUrl: string; action: DiscoveredAction }> = {};
@@ -46,22 +47,38 @@ export class BrowserRunner {
   }
 
   async init(): Promise<void> {
+    if (this.stagehand) return;
+    if (this.initPromise) {
+      await this.initPromise;
+      return;
+    }
+
     const domain = domainFromUrl(this.websiteUrl);
     const cacheDir = `cache/${domain}`;
 
-    const opts: Record<string, unknown> = {
-      env: "BROWSERBASE",
-      apiKey: API_KEYS.BROWSERBASE_API_KEY,
-      projectId: API_KEYS.BROWSERBASE_PROJECT_ID,
-      cacheDir,
-    };
+    this.initPromise = (async () => {
+      const opts: Record<string, unknown> = {
+        env: "BROWSERBASE",
+        apiKey: API_KEYS.BROWSERBASE_API_KEY,
+        projectId: API_KEYS.BROWSERBASE_PROJECT_ID,
+        cacheDir,
+      };
 
-    if (this._browserbaseSessionID) {
-      opts.browserbaseSessionID = this._browserbaseSessionID;
+      if (this._browserbaseSessionID) {
+        opts.browserbaseSessionID = this._browserbaseSessionID;
+      }
+
+      const stagehand = new Stagehand(opts as unknown as ConstructorParameters<typeof Stagehand>[0]);
+      await stagehand.init();
+      this.stagehand = stagehand;
+      this._browserbaseSessionID = stagehand.browserbaseSessionID ?? this._browserbaseSessionID;
+    })();
+
+    try {
+      await this.initPromise;
+    } finally {
+      this.initPromise = null;
     }
-
-    this.stagehand = new Stagehand(opts as unknown as ConstructorParameters<typeof Stagehand>[0]);
-    await this.stagehand!.init();
   }
 
   getBrowserbaseSessionID(): string | undefined {
@@ -269,6 +286,9 @@ export class BrowserRunner {
   }
 
   async close(): Promise<void> {
+    if (this.initPromise) {
+      await this.initPromise.catch(() => {});
+    }
     if (!this.stagehand) return;
     const sh = this.stagehand;
     this.stagehand = null;

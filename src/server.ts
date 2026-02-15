@@ -27,6 +27,43 @@ function domainFromUrl(url: string): string {
   try { return new URL(url).hostname.replace(/\./g, "_"); } catch { return "unknown"; }
 }
 
+type ProgressReporter = (update: { progress: number; total: number }) => Promise<void>;
+
+function startProgressKeepalive(
+  reportProgress: ProgressReporter,
+  options?: { start?: number; cap?: number; intervalMs?: number }
+): { set: (next: number) => Promise<void>; stop: () => void } {
+  let progress = options?.start ?? 0;
+  const cap = options?.cap ?? 99;
+  const intervalMs = options?.intervalMs ?? 10_000;
+
+  const send = async () => {
+    progress = Math.min(progress + 1, cap);
+    try {
+      await reportProgress({ progress, total: 100 });
+    } catch {
+      // Ignore dropped progress channel errors.
+    }
+  };
+
+  void send();
+  const timer = setInterval(() => {
+    void send();
+  }, intervalMs);
+
+  return {
+    set: async (next: number) => {
+      progress = Math.min(next, cap);
+      try {
+        await reportProgress({ progress, total: 100 });
+      } catch {
+        // Ignore dropped progress channel errors.
+      }
+    },
+    stop: () => clearInterval(timer),
+  };
+}
+
 const server = new FastMCP({
   name: "MCP Factory",
   version: "1.0.0",
@@ -45,14 +82,15 @@ server.addTool({
   }),
   execute: async (args, { log, reportProgress }) => {
     await log.info("Starting discovery for " + args.url);
-    // Keepalive: send progress every 15s so the connection doesn't drop
-    let step = 0;
-    const keepalive = setInterval(async () => {
-      step++;
-      try { await reportProgress({ progress: step, total: 100 }); } catch {}
-    }, 15_000);
+    const keepalive = startProgressKeepalive(reportProgress, { start: 2, cap: 95, intervalMs: 10_000 });
     try {
       const result = await discoverWebsite(args.url, args.turns ?? 15);
+      if (result.sessionId) {
+        await log.info(`Discovery Browserbase session: ${result.sessionId}`);
+      } else {
+        await log.warn("Discovery Browserbase session ID unavailable");
+      }
+      await keepalive.set(100);
       const endpointList = result.discovery.endpoints
         .map((e, i) => `  ${i + 1}. ${e.name}: ${e.description}`)
         .join("\n");
@@ -64,7 +102,7 @@ server.addTool({
         `Endpoints:\n${endpointList}`
       );
     } finally {
-      clearInterval(keepalive);
+      keepalive.stop();
     }
   },
 });
@@ -81,13 +119,10 @@ server.addTool({
   }),
   execute: async (args, { log, reportProgress }) => {
     await log.info("Generating MCP server for " + args.url);
-    let step = 0;
-    const keepalive = setInterval(async () => {
-      step++;
-      try { await reportProgress({ progress: step, total: 100 }); } catch {}
-    }, 15_000);
+    const keepalive = startProgressKeepalive(reportProgress, { start: 2, cap: 95, intervalMs: 10_000 });
     try {
       const result = await generateServer(args.url);
+      await keepalive.set(100);
       return (
         `Generated MCP server at ${result.outputDir}\n\n` +
         `Tools created (${result.toolNames.length}):\n` +
@@ -95,7 +130,7 @@ server.addTool({
         `\n\nTo deploy, call the 'deploy' tool with the same URL.`
       );
     } finally {
-      clearInterval(keepalive);
+      keepalive.stop();
     }
   },
 });
@@ -110,16 +145,23 @@ server.addTool({
   parameters: z.object({
     url: z.string().describe("URL of the website whose generated server to deploy"),
   }),
-  execute: async (args) => {
+  execute: async (args, { log, reportProgress }) => {
+    await log.info("Deploying MCP server for " + args.url);
+    const keepalive = startProgressKeepalive(reportProgress, { start: 5, cap: 95, intervalMs: 10_000 });
     const domain = domainFromUrl(args.url);
     const serverDir = path.resolve(__dirname, "..", "generated-servers", domain);
-    const result = await deployToModal(serverDir);
-    return (
-      `Deployed to Modal!\n\n` +
-      `MCP Endpoint: ${result.mcpEndpoint}\n` +
-      `Transport: Streamable HTTP\n\n` +
-      `Connect using MCP Inspector or Claude Desktop with the URL above.`
-    );
+    try {
+      const result = await deployToModal(serverDir);
+      await keepalive.set(100);
+      return (
+        `Deployed to Modal!\n\n` +
+        `MCP Endpoint: ${result.mcpEndpoint}\n` +
+        `Transport: Streamable HTTP\n\n` +
+        `Connect using MCP Inspector or Claude Desktop with the URL above.`
+      );
+    } finally {
+      keepalive.stop();
+    }
   },
 });
 
@@ -135,19 +177,31 @@ server.addTool({
     endpoint_name: z.string().describe("Name of the endpoint to replay (from discovery)"),
     params_json: z.string().optional().describe("Optional JSON object of parameters to substitute into endpoint steps, e.g. '{\"query\": \"laptop\"}'"),
   }),
-  execute: async (args) => {
+  execute: async (args, { log, reportProgress }) => {
+    await log.info(`Starting replay for ${args.url} / endpoint ${args.endpoint_name}`);
+    const keepalive = startProgressKeepalive(reportProgress, { start: 2, cap: 95, intervalMs: 10_000 });
     const params = args.params_json ? JSON.parse(args.params_json) as Record<string, string> : undefined;
-    const result = await replayActions(args.url, args.endpoint_name, params);
-    if (result.success) {
-      let msg = `Replay successful: ${result.endpointName}\nSteps: ${result.stepsExecuted}/${result.totalSteps}`;
-      if (result.extractedData) msg += `\n\nExtracted data:\n${result.extractedData}`;
-      return msg;
-    } else {
-      return (
-        `Replay failed: ${result.endpointName}\n` +
-        `Steps completed: ${result.stepsExecuted}/${result.totalSteps}\n` +
-        `Error: ${result.error}`
-      );
+    try {
+      const result = await replayActions(args.url, args.endpoint_name, params);
+      if (result.sessionId) {
+        await log.info(`Replay Browserbase session: ${result.sessionId}`);
+      } else {
+        await log.warn("Replay Browserbase session ID unavailable");
+      }
+      await keepalive.set(100);
+      if (result.success) {
+        let msg = `Replay successful: ${result.endpointName}\nSteps: ${result.stepsExecuted}/${result.totalSteps}`;
+        if (result.extractedData) msg += `\n\nExtracted data:\n${result.extractedData}`;
+        return msg;
+      } else {
+        return (
+          `Replay failed: ${result.endpointName}\n` +
+          `Steps completed: ${result.stepsExecuted}/${result.totalSteps}\n` +
+          `Error: ${result.error}`
+        );
+      }
+    } finally {
+      keepalive.stop();
     }
   },
 });
@@ -164,25 +218,27 @@ server.addTool({
     turns: z.number().optional().describe("Max exploration turns for discovery (default: 15)"),
   }),
   execute: async (args, { log, reportProgress }) => {
-    let step = 0;
-    const keepalive = setInterval(async () => {
-      step++;
-      try { await reportProgress({ progress: step, total: 100 }); } catch {}
-    }, 15_000);
+    const keepalive = startProgressKeepalive(reportProgress, { start: 2, cap: 98, intervalMs: 10_000 });
     try {
       // Step 1: Discover
       await log.info("Step 1/3: Discovering " + args.url);
+      await keepalive.set(10);
       const discoverResult = await discoverWebsite(args.url, args.turns ?? 15);
+      await keepalive.set(40);
 
       // Step 2: Generate
       await log.info("Step 2/3: Generating MCP server");
+      await keepalive.set(45);
       const generateResult = await generateServer(args.url);
+      await keepalive.set(75);
 
       // Step 3: Deploy
       await log.info("Step 3/3: Deploying to Modal");
+      await keepalive.set(80);
       const domain = domainFromUrl(args.url);
       const serverDir = path.resolve(__dirname, "..", "generated-servers", domain);
       const deployResult = await deployToModal(serverDir);
+      await keepalive.set(100);
 
       const toolList = generateResult.toolNames
         .map((t, i) => `  ${i + 1}. ${t}`)
@@ -197,7 +253,7 @@ server.addTool({
         `Connect using Streamable HTTP transport at the URL above.`
       );
     } finally {
-      clearInterval(keepalive);
+      keepalive.stop();
     }
   },
 });

@@ -4,3 +4,5 @@ dist/
 generated-servers/
 data/
 cache/
+
+poke-mcp/
